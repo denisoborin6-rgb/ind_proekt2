@@ -1,1 +1,449 @@
-# ind_proekt2
+
+class Node:
+    def __init__(self, value, left=None, right=None):
+        self.value = value
+        self.left = left
+        self.right = right
+
+    def is_operator(self):
+        return self.value in ('+', '-', '*', '/')
+
+    def is_number(self):
+        try:
+            float(self.value)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def is_variable(self):
+        return isinstance(self.value, str) and len(self.value) == 1 and self.value.isalpha()
+
+    def __str__(self):
+        if not self.is_operator():
+            return str(self.value)
+
+        left_str = str(self.left)
+        right_str = str(self.right)
+
+        if self.left and self.left.is_operator() and self._precedence(self.left.value) < self._precedence(self.value):
+            left_str = f"({left_str})"
+        if self.right and self.right.is_operator() and self._precedence(self.right.value) <= self._precedence(self.value):
+            right_str = f"({right_str})"
+
+        return f"{left_str}{self.value}{right_str}"
+
+    @staticmethod
+    def _precedence(op):
+        if op in ('+', '-'):
+            return 1
+        if op in ('*', '/'):
+            return 2
+        return 0
+
+
+class ExpressionParser:
+    def __init__(self, expression):
+        self.expression = expression.replace(' ', '')
+
+    def tokenize(self):
+        tokens = []
+        i = 0
+        while i < len(self.expression):
+            ch = self.expression[i]
+
+            if ch.isdigit():
+                num = ''
+                while i < len(self.expression) and self.expression[i].isdigit():
+                    num += self.expression[i]
+                    i += 1
+                tokens.append(num)
+                continue
+
+            elif ch.isalpha():
+                tokens.append(ch)
+                i += 1
+                continue
+
+            elif ch in '+-*/()':
+                tokens.append(ch)
+                i += 1
+                continue
+
+            else:
+                i += 1
+
+        processed = []
+        for i, token in enumerate(tokens):
+            if token == '-' and (i == 0 or tokens[i-1] in '+-*/('):
+                processed.append('u-')
+            else:
+                processed.append(token)
+
+        return processed
+
+    def infix_to_postfix(self, tokens):
+        output = []
+        stack = []
+        precedence = {'+': 1, '-': 1, '*': 2, '/': 2, 'u-': 3}
+
+        for token in tokens:
+            if token.isdigit() or token.isalpha():
+                output.append(token)
+            elif token == 'u-':
+                stack.append(token)
+            elif token == '(':
+                stack.append(token)
+            elif token == ')':
+                while stack and stack[-1] != '(':
+                    output.append(stack.pop())
+                if stack and stack[-1] == '(':
+                    stack.pop()
+            else:
+                while (stack and stack[-1] != '(' and
+                       precedence.get(stack[-1], 0) >= precedence.get(token, 0)):
+                    output.append(stack.pop())
+                stack.append(token)
+
+        while stack:
+            output.append(stack.pop())
+
+        return output
+
+    def build_tree(self):
+        tokens = self.tokenize()
+        postfix = self.infix_to_postfix(tokens)
+        return self._build_from_postfix(postfix)
+
+    def _build_from_postfix(self, postfix):
+        stack = []
+
+        for token in postfix:
+            if token.isdigit():
+                stack.append(Node(int(token)))
+            elif token.isalpha():
+                stack.append(Node(token))
+            elif token == 'u-':
+                operand = stack.pop()
+                stack.append(Node('*', Node(-1), operand))
+            else:
+                right = stack.pop()
+                left = stack.pop()
+                stack.append(Node(token, left, right))
+
+        return stack[0] if stack else None
+
+
+def validate_formula(expression: str) -> bool:
+    """Проверка корректности формулы."""
+    if not expression or expression.strip() == "":
+        return False
+
+    expr = expression.replace(' ', '')
+
+    allowed = set('0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ+-*/()')
+    for ch in expr:
+        if ch not in allowed:
+            return False
+
+    balance = 0
+    for ch in expr:
+        if ch == '(':
+            balance += 1
+        elif ch == ')':
+            balance -= 1
+            if balance < 0:
+                return False
+    if balance != 0:
+        return False
+
+    ops = set('+-*/')
+    for i, ch in enumerate(expr):
+        if ch in ops:
+            if i == 0 and ch != '-':
+                return False
+            if i == len(expr) - 1:
+                return False
+
+    return True
+
+
+class ExpressionSimplifier:
+    @staticmethod
+    def simplify(node):
+        if node is None:
+            return None
+
+        if node.left:
+            node.left = ExpressionSimplifier.simplify(node.left)
+        if node.right:
+            node.right = ExpressionSimplifier.simplify(node.right)
+
+        if node.is_operator():
+            simplified = ExpressionSimplifier._apply_rules(node)
+            if simplified:
+                return simplified
+
+        return node
+
+    @staticmethod
+    def _apply_rules(node):
+        if node.value not in ('+', '-'):
+            return None
+
+        result = ExpressionSimplifier._rule_common_right(node)
+        if result:
+            return result
+
+        result = ExpressionSimplifier._rule_common_left(node)
+        if result:
+            return result
+
+        return None
+
+    @staticmethod
+    def _rule_common_right(node):
+        if node.value not in ('+', '-'):
+            return None
+
+        left = node.left
+        right = node.right
+
+        if not left or not right or left.value != '*' or right.value != '*':
+            return None
+
+        if ExpressionSimplifier._is_same(left.right, right.right):
+            f1 = left.left
+            f2 = right.left
+            f3 = left.right
+            new_inner = Node(node.value, f1, f2)
+            return Node('*', new_inner, f3)
+
+        return None
+
+    @staticmethod
+    def _rule_common_left(node):
+        if node.value not in ('+', '-'):
+            return None
+
+        left = node.left
+        right = node.right
+
+        if not left or not right or left.value != '*' or right.value != '*':
+            return None
+
+        if ExpressionSimplifier._is_same(left.left, right.left):
+            f1 = left.left
+            f2 = left.right
+            f3 = right.right
+            new_inner = Node(node.value, f2, f3)
+            return Node('*', f1, new_inner)
+
+        return None
+
+    @staticmethod
+    def _is_same(node1, node2):
+        if node1 is None and node2 is None:
+            return True
+        if node1 is None or node2 is None:
+            return False
+        if node1.value != node2.value:
+            return False
+        return (ExpressionSimplifier._is_same(node1.left, node2.left) and
+                ExpressionSimplifier._is_same(node1.right, node2.right))
+
+
+class ExpressionCalculator:
+    def __init__(self, variables=None):
+        self.variables = variables or {}
+
+    def evaluate(self, node):
+        if node is None:
+            return 0
+
+        if node.is_number():
+            return float(node.value)
+
+        if node.is_variable():
+            if node.value in self.variables:
+                return self.variables[node.value]
+            raise ValueError(f"Переменная '{node.value}' не определена")
+
+        if node.value == '+':
+            return self.evaluate(node.left) + self.evaluate(node.right)
+        elif node.value == '-':
+            return self.evaluate(node.left) - self.evaluate(node.right)
+        elif node.value == '*':
+            return self.evaluate(node.left) * self.evaluate(node.right)
+        elif node.value == '/':
+            right_val = self.evaluate(node.right)
+            if right_val == 0:
+                raise ZeroDivisionError("Деление на ноль!")
+            return self.evaluate(node.left) / right_val
+
+        raise ValueError(f"Неизвестный оператор: {node.value}")
+
+
+def run_tests():
+    print("\n" + "=" * 70)
+    print("  🧪 ТЕСТИРОВАНИЕ")
+    print("=" * 70)
+
+    test_cases = [
+        ("a*b + a*c", "a*(b+c)", "a*b + a*c -> a*(b+c)"),
+        ("a*b - a*c", "a*(b-c)", "a*b - a*c -> a*(b-c)"),
+        ("a*c + b*c", "(a+b)*c", "a*c + b*c -> (a+b)*c"),
+        ("a*c - b*c", "(a-b)*c", "a*c - b*c -> (a-b)*c"),
+        ("2*x + 3*x", "(2+3)*x", "2*x + 3*x -> (2+3)*x"),
+        ("5*y - 2*y", "(5-2)*y", "5*y - 2*y -> (5-2)*y"),
+        ("x*y + x*z - x*w", "x*(y+z-w)", "x*y + x*z - x*w -> x*(y+z-w)"),
+        ("(a+b)*c + (a+b)*d", "(a+b)*(c+d)", "(a+b)*c + (a+b)*d -> (a+b)*(c+d)"),
+        ("2*3 + 4", "10", "2*3 + 4 = 10"),
+        ("(2+3)*(4+5)", "45", "(2+3)*(4+5) = 45"),
+    ]
+
+    passed = 0
+    for expr, expected, desc in test_cases:
+        try:
+            parser = ExpressionParser(expr)
+            tree = parser.build_tree()
+
+            if expected.replace(" ", "").replace("-", "").isdigit():
+                calc = ExpressionCalculator()
+                result = calc.evaluate(tree)
+                result_str = str(int(result)) if result.is_integer() else str(result)
+                passed_test = (result_str == expected)
+            else:
+                simplifier = ExpressionSimplifier()
+                simplified = simplifier.simplify(tree)
+                result_str = str(simplified) if simplified else ""
+                passed_test = (expected.replace(" ", "") == result_str.replace(" ", ""))
+
+            status = "✅" if passed_test else "❌"
+            if passed_test:
+                passed += 1
+
+            print(f"\n{status} {desc}")
+            print(f"   Получено: {result_str}")
+
+        except Exception as e:
+            print(f"\n❌ Ошибка в тесте '{expr}': {e}")
+
+    print("\n" + "=" * 70)
+    print(f"📊 ИТОГО: {passed}/{len(test_cases)} тестов пройдено")
+    print("=" * 70)
+
+
+def print_header():
+    print("\n" + "=" * 60)
+    print("  📐 УПРОЩЕНИЕ И ВЫЧИСЛЕНИЕ ФОРМУЛ")
+    print("  Задача №20")
+    print("=" * 60)
+
+
+def print_menu():
+    print("\n" + "-" * 40)
+    print("  📋 ГЛАВНОЕ МЕНЮ:")
+    print("  1. 🔢 Ввести формулу и упростить")
+    print("  2. 🧪 Запустить тестирование")
+    print("  3. 🚪 Выйти из программы")
+    print("-" * 40)
+
+
+def process_formula():
+    print("\n" + "-" * 40)
+    print("  📝 ВВОД ФОРМУЛЫ")
+    print("-" * 40)
+
+    print("\n  📌 Примеры:")
+    print("     • a*b + a*c  ->  a*(b+c)")
+    print("     • (a+b)*c + (a+b)*d  ->  (a+b)*(c+d)")
+    print("     • 2*x + 3*x  ->  (2+3)*x")
+    print("     • -5 + 3  ->  -2")
+
+    while True:
+        expr = input("\n  ➤ Введите формулу: ").strip()
+
+        if not expr:
+            print("  ❌ Ошибка: формула не может быть пустой!")
+            continue
+
+        if not validate_formula(expr):
+            print("  ❌ Ошибка: некорректная формула!")
+            print("     Проверьте символы и скобки.")
+            continue
+
+        break
+
+    try:
+        parser = ExpressionParser(expr)
+        tree = parser.build_tree()
+
+        print(f"\n  🔨 Исходное выражение: {tree}")
+
+        simplifier = ExpressionSimplifier()
+        simplified = simplifier.simplify(tree)
+
+        print(f"  ✨ Упрощённое выражение: {simplified}")
+
+        try:
+            calc = ExpressionCalculator()
+            result = calc.evaluate(simplified)
+            print(f"  📊 Результат вычисления: {result}")
+        except ValueError:
+            var_set = set()
+            stack = [tree]
+            while stack:
+                node = stack.pop()
+                if node:
+                    if node.is_variable():
+                        var_set.add(node.value)
+                    stack.append(node.left)
+                    stack.append(node.right)
+
+            if var_set:
+                print("\n  📊 Введите значения переменных:")
+                variables = {}
+                for var in sorted(var_set):
+                    while True:
+                        val = input(f"     {var} = ").strip()
+                        try:
+                            variables[var] = float(val)
+                            break
+                        except ValueError:
+                            print("     ❌ Введите число!")
+
+                calc = ExpressionCalculator(variables)
+                result = calc.evaluate(simplified)
+                print(f"\n  📊 Результат вычисления: {result}")
+
+    except Exception as e:
+        print(f"\n  ❌ Ошибка: {e}")
+
+    input("\n  Нажмите Enter, чтобы продолжить...")
+
+
+def main():
+    print_header()
+
+    while True:
+        print_menu()
+        choice = input("  ➤ Выберите действие (1-3): ").strip()
+
+        if choice == "1":
+            process_formula()
+        elif choice == "2":
+            run_tests()
+            input("\n  Нажмите Enter, чтобы продолжить...")
+        elif choice == "3":
+            print("\n" + "=" * 60)
+            print("  👋 До свидания! Спасибо за использование программы!")
+            print("=" * 60 + "\n")
+            break
+        else:
+            print("\n  ❌ Ошибка: Неверный выбор!")
+            print("  Пожалуйста, введите число от 1 до 3.")
+            input("\n  Нажмите Enter, чтобы продолжить...")
+
+
+if __name__ == "__main__":
+    main()
