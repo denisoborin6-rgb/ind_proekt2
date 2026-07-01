@@ -1,3 +1,4 @@
+
 class Node:
     def __init__(self, value, left=None, right=None):
         self.value = value
@@ -173,9 +174,6 @@ def validate_formula(expression: str) -> bool:
     for i in range(len(expr) - 1):
         if expr[i] == '(' and expr[i+1] == ')':
             return False
-
-    # ЗАПРЕТ: 2x, ab
-    for i in range(len(expr) - 1):
         if expr[i].isdigit() and expr[i+1].isalpha():
             return False
         if expr[i].isalpha() and expr[i+1].isdigit():
@@ -193,11 +191,10 @@ def validate_formula(expression: str) -> bool:
             if i > 0 and expr[i-1] in ops:
                 if not (ch == '-' and expr[i-1] in ops):
                     return False
-            if i > 0 and expr[i-1] == '(' and ch != '-':
-                return False
+            # РАЗРЕШАЕМ оператор перед '('
             if i > 0:
                 prev = expr[i-1]
-                if not (prev.isdigit() or prev.isalpha() or prev == ')'):
+                if not (prev.isdigit() or prev.isalpha() or prev == ')' or prev == '('):
                     if not (ch == '-' and prev in ops):
                         return False
             if i < len(expr) - 1:
@@ -238,6 +235,31 @@ class ExpressionSimplifier:
 
     @staticmethod
     def _apply_rules(node):
+        # УПРОЩЕНИЕ УНАРНОГО МИНУСА
+        if node.value == '+':
+            # (-x) + 3 → 3 - x
+            if node.left and node.left.is_unary_minus() and node.right and node.right.is_number():
+                return Node('-', node.right, node.left.left)
+            # 3 + (-x) → 3 - x
+            if node.right and node.right.is_unary_minus() and node.left and node.left.is_number():
+                return Node('-', node.left, node.right.left)
+            # (-x) + (-y) → -(x + y)
+            if node.left and node.left.is_unary_minus() and node.right and node.right.is_unary_minus():
+                inner = Node('+', node.left.left, node.right.left)
+                return Node('u-', inner)
+
+        if node.value == '-':
+            # (-x) - 3 → -(x + 3)
+            if node.left and node.left.is_unary_minus() and node.right and node.right.is_number():
+                inner = Node('+', node.left.left, node.right)
+                return Node('u-', inner)
+            # 3 - (-x) → 3 + x
+            if node.right and node.right.is_unary_minus() and node.left and node.left.is_number():
+                return Node('+', node.left, node.right.left)
+            # (-x) - (-y) → y - x
+            if node.left and node.left.is_unary_minus() and node.right and node.right.is_unary_minus():
+                return Node('-', node.right.left, node.left.left)
+
         if node.value not in ('+', '-'):
             return None
 
@@ -273,7 +295,6 @@ class ExpressionSimplifier:
         if not left or not right or left.value != '*' or right.value != '*':
             return None
 
-        # ВСЕ 4 КОМБИНАЦИИ
         matches = []
         if ExpressionSimplifier._is_same(left.right, right.right):
             matches.append((left.left, right.left, left.right))
@@ -302,7 +323,6 @@ class ExpressionSimplifier:
         if not left or not right or left.value != '*' or right.value != '*':
             return None
 
-        # ВСЕ 4 КОМБИНАЦИИ
         matches = []
         if ExpressionSimplifier._is_same(left.left, right.left):
             matches.append((left.left, left.right, right.right))
@@ -369,14 +389,16 @@ def run_tests():
         ("5*y - 2*y", "(5-2)*y", "Упрощение с числами (-)"),
         ("x*y + x*z - x*w", "x*(y+z-w)", "Сложное упрощение"),
         ("(a+b)*c + (a+b)*d", "(a+b)*(c+d)", "Сложный множитель"),
-        ("2*3 + 4", "10", "Вычисление 1"),
-        ("(2+3)*(4+5)", "45", "Вычисление 2"),
-        # НОВЫЕ ТЕСТЫ: коммутативность
         ("a*b + c*a", "a*(b+c)", "Коммутативность (a*b + c*a)"),
         ("b*a + a*c", "a*(b+c)", "Коммутативность (b*a + a*c)"),
-        # Унарный минус
-        ("-x + 3", "3-x", "Унарный минус"),
-        ("-(a+b)", "-(a+b)", "Унарный минус со скобками"),
+        ("a*b + c*b", "(a+c)*b", "Коммутативность (a*b + c*b)"),
+        ("-x + 3", "3-x", "Унарный минус (перестановка)"),
+        ("3 + (-x)", "3-x", "Унарный минус (3 + (-x))"),
+        ("-x + (-y)", "-(x+y)", "Унарный минус (сумма)"),
+        ("-(-x)", "x", "Двойной унарный минус"),
+        ("-5 + 3", "-2", "Унарный минус с числом"),
+        ("2*3 + 4", "10", "Вычисление 1"),
+        ("(2+3)*(4+5)", "45", "Вычисление 2"),
     ]
 
     passed = 0
@@ -396,16 +418,18 @@ def run_tests():
                 result_str = str(simplified) if simplified else ""
                 passed_test = (expected.replace(" ", "") == result_str.replace(" ", ""))
 
+            status = "✅" if passed_test else "❌"
             if passed_test:
                 passed += 1
-                print(f"✅ {desc}: {expr} → {result_str}")
-            else:
-                print(f"❌ {desc}: {expr} → {result_str} (ожид. {expected})")
+
+            print(f"\n{status} {desc}")
+            print(f"   Исходное: {expr}")
+            print(f"   Получено: {result_str}")
+            print(f"   Ожидалось: {expected}")
 
         except Exception as e:
-            print(f"❌ {desc}: Ошибка: {e}")
+            print(f"\n❌ Ошибка в тесте '{expr}': {e}")
 
-    # ТЕСТЫ НА ОШИБКИ
     print("\n" + "-" * 70)
     print("  🛡️ ТЕСТЫ НА НЕКОРРЕКТНЫЙ ВВОД")
     print("-" * 70)
@@ -413,14 +437,14 @@ def run_tests():
     error_tests = [
         ("", "пустая строка"),
         ("a*b + @", "недопустимый символ (@)"),
-        ("(a+b", "непарная скобка"),
-        ("a+b)", "непарная скобка"),
-        ("a++b", "операторы подряд"),
+        ("(a+b", "непарная скобка (открывающая)"),
+        ("a+b)", "непарная скобка (закрывающая)"),
+        ("a++b", "операторы подряд (++)"),
         ("a+b-", "оператор в конце"),
         ("()", "пустые скобки"),
-        ("2x", "число+буква"),
-        ("ab", "буква+буква"),
-        ("a * + b", "операторы подряд"),
+        ("2x", "число+буква (2x)"),
+        ("ab", "буква+буква (ab)"),
+        ("a2", "буква+число (a2)"),
     ]
 
     passed_errors = 0
@@ -434,9 +458,9 @@ def run_tests():
             passed_errors += 1
 
     print("\n" + "=" * 70)
-    print(f"📊 КОРРЕКТНЫЕ: {passed}/{len(test_cases)}")
-    print(f"📊 ОШИБКИ: {passed_errors}/{len(error_tests)}")
-    print(f"📊 ВСЕГО: {passed + passed_errors}/{len(test_cases) + len(error_tests)}")
+    print(f"📊 КОРРЕКТНЫЕ ТЕСТЫ: {passed}/{len(test_cases)} пройдено")
+    print(f"📊 ТЕСТЫ НА ОШИБКИ: {passed_errors}/{len(error_tests)} пройдено")
+    print(f"📊 ВСЕГО: {passed + passed_errors}/{len(test_cases) + len(error_tests)} пройдено")
     print("=" * 70)
 
 
@@ -465,6 +489,7 @@ def process_formula():
     print("     • a*b + a*c  ->  a*(b+c)")
     print("     • a*b + c*a  ->  a*(b+c) (коммутативность)")
     print("     • -x + 3     ->  3-x")
+    print("     • 3 + (-x)   ->  3-x")
     print("     • 2*x + 3*x  ->  (2+3)*x")
 
     while True:
