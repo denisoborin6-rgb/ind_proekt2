@@ -23,7 +23,10 @@ class Node:
 
     def __str__(self):
         if self.is_unary_minus():
-            return f"-{self.left}"
+            left_str = str(self.left)
+            if self.left and self.left.is_operator() and self._precedence(self.left.value) < self._precedence(self.value):
+                left_str = f"({left_str})"
+            return f"-{left_str}"
         if not self.is_operator():
             return str(self.value)
 
@@ -191,7 +194,6 @@ def validate_formula(expression: str) -> bool:
             if i > 0 and expr[i-1] in ops:
                 if not (ch == '-' and expr[i-1] in ops):
                     return False
-            # РАЗРЕШАЕМ оператор перед '('
             if i > 0:
                 prev = expr[i-1]
                 if not (prev.isdigit() or prev.isalpha() or prev == ')' or prev == '('):
@@ -219,7 +221,6 @@ class ExpressionSimplifier:
         if node.right:
             node.right = ExpressionSimplifier.simplify(node.right)
 
-        # Упрощение констант: 2+3 → 5
         if node.is_operator() and node.value in ('+', '-', '*', '/'):
             if node.left and node.left.is_number() and node.right and node.right.is_number():
                 calc = ExpressionCalculator()
@@ -235,28 +236,21 @@ class ExpressionSimplifier:
 
     @staticmethod
     def _apply_rules(node):
-        # УПРОЩЕНИЕ УНАРНОГО МИНУСА
         if node.value == '+':
-            # (-x) + 3 → 3 - x
             if node.left and node.left.is_unary_minus() and node.right and node.right.is_number():
                 return Node('-', node.right, node.left.left)
-            # 3 + (-x) → 3 - x
             if node.right and node.right.is_unary_minus() and node.left and node.left.is_number():
                 return Node('-', node.left, node.right.left)
-            # (-x) + (-y) → -(x + y)
             if node.left and node.left.is_unary_minus() and node.right and node.right.is_unary_minus():
                 inner = Node('+', node.left.left, node.right.left)
                 return Node('u-', inner)
 
         if node.value == '-':
-            # (-x) - 3 → -(x + 3)
             if node.left and node.left.is_unary_minus() and node.right and node.right.is_number():
                 inner = Node('+', node.left.left, node.right)
                 return Node('u-', inner)
-            # 3 - (-x) → 3 + x
             if node.right and node.right.is_unary_minus() and node.left and node.left.is_number():
                 return Node('+', node.left, node.right.left)
-            # (-x) - (-y) → y - x
             if node.left and node.left.is_unary_minus() and node.right and node.right.is_unary_minus():
                 return Node('-', node.right.left, node.left.left)
 
